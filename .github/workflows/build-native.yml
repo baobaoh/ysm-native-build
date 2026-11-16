@@ -181,11 +181,10 @@ jobs:
 
       # bootstrap.sh 内部 export CONAN_HOME=<repo>/conan/cache，只对当前 shell 生效，
       # 所以 setup 与 build 必须同一步执行。
-      # upstream dav1d 用 meson 构建，meson.build:102-103 全局加了 -D_GNU_SOURCE；
-      # 但 ysm 自己那份 CMakeLists（third-party/dav1d/patches/dav1d.patch）漏了它，
-      # 于是 src/lib.c:100 的 dlsym(RTLD_DEFAULT, ...) 在 glibc 上报
-      # "'RTLD_DEFAULT' undeclared"（RTLD_DEFAULT 只在 _GNU_SOURCE 下可见）。
-      # 用环境变量 CFLAGS 补上，不改 patch 文件（避免破坏 hunk 行数）。
+      # 上游官方用 clang + libc++ 编译，很多 .h 靠 libc++ 的隐式包含拿到 std::memcpy /
+      # std::span / std::optional 等；换成 GCC 16 + libstdc++ 后这些隐式包含不存在，
+      # 会报 "'memcpy' is not a member of 'std'" 一类错误（实测 pose_stack.h:33）。
+      # 与其逐个文件补 #include（要跑十几轮 Actions），直接强制预包含这些标准头。
       - name: Conan setup + Build native
         working-directory: work
         env:
@@ -193,6 +192,11 @@ jobs:
           CXX: g++
           CFLAGS: "-D_GNU_SOURCE"
           CPPFLAGS: "-D_GNU_SOURCE"
+          CXXFLAGS: >-
+            -include cstddef -include cstdint -include cstring -include cmath
+            -include cstdio -include limits -include utility -include algorithm
+            -include array -include span -include vector -include string
+            -include string_view -include optional -include memory
           LDFLAGS: "-static-libstdc++ -static-libgcc"
         run: |
           set -o pipefail
