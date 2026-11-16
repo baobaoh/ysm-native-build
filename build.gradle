@@ -1,0 +1,262 @@
+plugins {
+    // 1.21.11 是最后一个混淆版本线：必须用 loom 的 remap 形态 + mojmap。
+    // 基线（26.1.2）的 `net.fabricmc.fabric-loom`（无混淆、无 mappings）不能照搬。
+    id 'net.fabricmc.fabric-loom-remap' version "1.17.19"
+    id 'com.google.protobuf' version '0.9.5'
+    id 'maven-publish'
+}
+
+apply from: 'gradle/local-properties.gradle'
+apply from: 'gradle/native.gradle'
+apply from: 'gradle/schema.gradle'
+
+group = 'com.elfmcys.ysm'
+// version 来自 gradle.properties（3.0-dev-fabric+mc1.21.11），processResources 会把它展开进 fabric.mod.json
+base {
+    archivesName = 'ysm'
+}
+
+java {
+    withSourcesJar()
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+loom {
+    mods {
+        ysm {
+            sourceSet sourceSets.main
+        }
+    }
+
+    // remap 线必须真正生成 refmap：ysm.mixins.json 里声明了 "refmap": "ysm.refmap.json"。
+    // Loom 1.17 默认关闭 legacy Mixin AP（会打印 "mixin annotation is no longer enabled by default"），
+    // 而 1.21.11 产物在运行时看到的是 intermediary 名，mixin 的 @Inject 目标必须靠 refmap 翻译，
+    // 所以这里显式开回 legacy AP。
+    mixin {
+        useLegacyMixinAp = true
+        defaultRefmapName = 'ysm.refmap.json'
+    }
+
+    runs {
+        configureEach {
+            // 基线还带了 -XX:+AllowEnhancedClassRedefinition；1.21.x 的 JBR 用不到，去掉减少噪音
+            vmArgs '-XX:+IgnoreUnrecognizedVMOptions'
+            if (providers.gradleProperty('ysm.premultView').isPresent()) {
+                vmArg '-Dysm.premultView=true'
+            }
+            if (providers.gradleProperty('ysm.debugQuad').isPresent()) {
+                vmArg "-Dysm.debugQuad=${providers.gradleProperty('ysm.debugQuad').get()}"
+            }
+            if (providers.gradleProperty('ysm.armSweep').isPresent()) {
+                vmArg "-Dysm.armSweep=${providers.gradleProperty('ysm.armSweep').get()}"
+            }
+            if (providers.gradleProperty('ysm.vertexLimit').isPresent()) {
+                vmArg "-Dysm.vertexLimit=${providers.gradleProperty('ysm.vertexLimit').get()}"
+            }
+        }
+
+        client {
+            client()
+            runDir 'run/client_a'
+            // 联机验证用固定用户名：服务端 ops.json 按离线 UUID 授权，随机名拿不到 op
+            programArgs '--username', 'ysm_a'
+            // 自动化渲染验证：直接进本地测试存档，探针截图后自动退出。
+            // 只影响开发运行，不写进产物。
+            if (providers.gradleProperty('ysm.probeWorld').isPresent()) {
+                programArgs '--quickPlaySingleplayer', providers.gradleProperty('ysm.probeWorld').get()
+            }
+            if (providers.gradleProperty('ysm.mpServer').isPresent()) {
+                programArgs '--quickPlayMultiplayer', providers.gradleProperty('ysm.mpServer').get()
+            }
+            if (providers.gradleProperty('ysm.noPreview').isPresent()) {
+                vmArg '-Dysm.noPreview=true'
+            }
+            if (providers.gradleProperty('ysm.probeCommand').isPresent()) {
+                vmArg "-Dysm.probeCommand=" + providers.gradleProperty('ysm.probeCommand').get()
+            }
+            if (providers.gradleProperty('ysm.mpProbe').isPresent()) {
+                vmArg "-Dysm.mpProbe=" + providers.gradleProperty('ysm.mpProbe').get()
+            }
+        }
+
+        client2 {
+            client()
+            runDir 'run/client_b'
+            programArgs '--username', 'ysm_b'
+            if (providers.gradleProperty('ysm.mpServer').isPresent()) {
+                programArgs '--quickPlayMultiplayer', providers.gradleProperty('ysm.mpServer').get()
+            }
+            if (providers.gradleProperty('ysm.mpProbe').isPresent()) {
+                vmArg "-Dysm.mpProbe=" + providers.gradleProperty('ysm.mpProbe').get()
+            }
+        }
+
+        server {
+            server()
+            runDir 'run/server'
+        }
+    }
+}
+
+// 基线用 shadow 打 fat jar；remap 线改用 loom 的 include（Jar-in-Jar）嵌入第三方库。
+// 注意：必须是 implementation（不是 modImplementation）——这些库不是 Fabric mod，
+// 走 modImplementation 会被 remap 链误处理。
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    // 官方 Mojang 映射（mojmap）：1.21.11 必须反混淆；不要按旧教程换成 yarn，
+    // 类名因此是 BuiltInRegistries / CommandSourceStack 等 mojmap 名。
+    mappings loom.officialMojangMappings()
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+
+    // 运行期需要 + 必须打进产物（MC 不自带 quickbuf / maven-artifact / snakeyaml）
+    implementation include('us.hebi.quickbuf:quickbuf-runtime:1.4')
+    implementation include('org.apache.maven:maven-artifact:3.9.9')
+    implementation include('org.yaml:snakeyaml:2.2')
+
+    // Mixin 注解（@WrapOperation / @WrapWithCondition）编译期需要。
+    // 0.3.6 与基线一致；1.21.11 上启用这两个注解的 mixin 时还需要 runtime 侧的
+    // mixinextras-fabric + include（PLAN B15，版本 UNVERIFIED），等 S7 放 mixin 时再加。
+    compileOnly 'io.github.llamalad7:mixinextras-common:0.3.6'
+
+    compileOnly 'org.jetbrains:annotations:26.0.1'
+
+    // 基线把这些 ASM 类 relocate 到 com.elfmcys.ysm.api.internal.processor.asm 内嵌。
+    // remap 线不再引入 shadow（B2），故改为不 relocate：先用 compileOnly 提供 asm，
+    // 源码里的 27 处 import 需由内容阶段改成 org.objectweb.asm（PLAN B12）。
+    compileOnly 'org.ow2.asm:asm:9.7.1'
+    compileOnly 'org.ow2.asm:asm-tree:9.7.1'
+
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+// 内置模型索引工具直接 JVM 运行，需要 LWJGL 的 MemoryUtil 与 lwjgl.dll（运行时由 MC 提供）
+configurations {
+    builtinIndexToolNatives
+}
+dependencies {
+    builtinIndexToolNatives 'org.lwjgl:lwjgl:3.3.3'
+    builtinIndexToolNatives 'org.lwjgl:lwjgl:3.3.3:natives-windows'
+}
+
+// 内置模型索引工具（源码在 src/builtinIndexTool/java）。骨架阶段不放源码，
+// 下面两个任务靠 onlyIf 自动跳过，processResources 因此不会被卡住（PLAN B8）。
+sourceSets {
+    builtinIndexTool {
+        java.srcDir 'src/builtinIndexTool/java'
+        compileClasspath += sourceSets.main.output.classesDirs + sourceSets.main.compileClasspath
+        runtimeClasspath += sourceSets.main.output.classesDirs + configurations.runtimeClasspath
+        runtimeClasspath += configurations.builtinIndexToolNatives
+    }
+}
+
+def ysmNativeLib = layout.projectDirectory.file('src/main/resources/META-INF/native/ysm.dll')
+def builtinToolSources = layout.projectDirectory.dir('src/builtinIndexTool/java')
+def builtinRoot = layout.projectDirectory.dir('src/main/resources/assets/ysm/builtin')
+def builtinIndexWork = layout.buildDirectory.dir('builtinIndex')
+def builtinDefaultContract = layout.buildDirectory.file('builtinIndex/default-contract.json')
+def builtinAnimationHistory = layout.projectDirectory.file('src/generated/resources/assets/ysm/builtin-animation-history.json')
+def builtinIndexFile = layout.projectDirectory.file('src/generated/resources/assets/ysm/builtin-index.json')
+
+// 工具源码 / native 库 / builtin 资源三者齐备才跑索引，否则跳过（不让骨架阶段的 build 变红）
+def builtinIndexReady = {
+    builtinToolSources.asFile.isDirectory() &&
+            ysmNativeLib.asFile.isFile() &&
+            builtinRoot.asFile.isDirectory()
+}
+
+tasks.register('generateBuiltinDefaultContract', JavaExec) {
+    group = 'build setup'
+    description = '生成内置模型的 default-contract.json（需要 native 库与 builtin 资源）'
+    dependsOn 'compileBuiltinIndexToolJava'
+    onlyIf { builtinIndexReady() }
+    classpath = sourceSets.builtinIndexTool.runtimeClasspath
+    mainClass = 'com.elfmcys.ysm.tool.BuiltinModelIndexTool'
+    inputs.dir(builtinRoot.dir('default'))
+    inputs.file(ysmNativeLib)
+    outputs.file(builtinDefaultContract)
+    args 'generate-default-contract',
+            ysmNativeLib.asFile.absolutePath,
+            builtinRoot.dir('default').asFile.absolutePath,
+            builtinDefaultContract.get().asFile.absolutePath,
+            builtinIndexWork.map { it.dir('work-default').asFile.absolutePath }.get()
+}
+
+tasks.register('generateBuiltinModelIndex', JavaExec) {
+    group = 'build setup'
+    description = '生成 assets/ysm/builtin-index.json（需要 native 库与 builtin 资源）'
+    dependsOn 'generateBuiltinDefaultContract'
+    onlyIf { builtinIndexReady() }
+    classpath = sourceSets.builtinIndexTool.runtimeClasspath
+    mainClass = 'com.elfmcys.ysm.tool.BuiltinModelIndexTool'
+    inputs.dir(builtinRoot)
+    inputs.file(ysmNativeLib)
+    inputs.file(builtinDefaultContract)
+    if (builtinAnimationHistory.asFile.exists()) {
+        inputs.file(builtinAnimationHistory)
+    }
+    outputs.file(builtinIndexFile)
+    args 'generate-index',
+            ysmNativeLib.asFile.absolutePath,
+            builtinRoot.asFile.absolutePath,
+            builtinIndexFile.asFile.absolutePath,
+            builtinIndexWork.map { it.dir('work-index').asFile.absolutePath }.get(),
+            builtinDefaultContract.get().asFile.absolutePath,
+            builtinAnimationHistory.asFile.absolutePath
+}
+
+// 索引工具源码就位时才把索引接入打包流程。
+// 注意：不能无条件 dependsOn —— 索引任务的 classpath 里挂了 sourceSets.main.output，
+// 即使被 onlyIf 跳过，边依赖也会把 compileJava 拖进 processResources 的任务图。
+if (builtinToolSources.asFile.isDirectory()) {
+    processResources.dependsOn 'generateBuiltinModelIndex'
+    sourcesJar.dependsOn 'generateBuiltinModelIndex'
+}
+
+// 生成的内置模型索引需要进 jar（assets/ysm/builtin-index.json）
+sourceSets.main.resources { srcDir 'src/generated/resources' }
+
+processResources {
+    inputs.property 'version', project.version
+    filteringCharset 'UTF-8'
+
+    // 许可证/声明文件还没拷进来时不要因此报错
+    if (file('LICENSE').exists()) {
+        from 'LICENSE'
+    }
+    if (file('NOTICE.md').exists()) {
+        from 'NOTICE.md'
+    }
+
+    // build.gradle 的 version → fabric.mod.json 的 ${version}
+    filesMatching('fabric.mod.json') {
+        expand 'version': project.version
+    }
+}
+
+// 不要写 manifest 的 MixinConfigs：入口已由 fabric.mod.json 的 "mixins" 声明，
+// 两处都声明会被 Mixin 当成重复注册（PLAN B17）。
+jar {
+    manifest.attributes([
+            'Implementation-Title'  : project.name,
+            'Implementation-Version': "${version}"
+    ])
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    // -Xmaxerrs 10000：首轮排错需要一次性看到全部错误
+    options.compilerArgs += [
+            '-Xlint:-removal',
+            '-Xmaxerrs', '10000'
+    ]
+}
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+}
+
