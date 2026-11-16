@@ -15,7 +15,7 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
           df -h /
 
-      # gcc-12 的 libstdc++ 缺 <format>（GCC 13 才有），<mdspan> 要 GCC 14。
+      # gcc-12 的 libstdc++ 缺 <format>（GCC 13 才有），<mdspan> 要 GCC 15。
       # 用 ubuntu-toolchain-r/test 保持 jammy 的 glibc 2.35（与目标服一致）。
       - name: Add gcc PPA
         run: |
@@ -27,23 +27,23 @@ jobs:
           sudo apt-get update || true
           echo "::notice::PPA added"
 
-      - name: Install gcc-14 and build tools
+      - name: Install gcc-15 and build tools
         run: |
           set -x
           if ! sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-              ninja-build gcc-14 g++-14 nasm yasm build-essential \
+              ninja-build gcc-15 g++-15 nasm yasm build-essential \
               pkg-config autoconf automake libtool; then
-            echo "::error title=apt-install-failed::apt-get install gcc-14 等失败（可能 PPA 里没有该版本）"
-            apt-cache policy gcc-14 g++-14 | head -n 20
+            echo "::error title=apt-install-failed::apt-get install gcc-15 等失败（可能 PPA 里没有该版本）"
+            apt-cache policy gcc-15 g++-15 | head -n 20
             exit 1
           fi
 
-      - name: Make gcc-14 default
+      - name: Make gcc-15 default
         run: |
-          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100
-          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
-          sudo update-alternatives --install /usr/bin/cc cc /usr/bin/gcc-14 100
-          sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++-14 100
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-15 100
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-15 100
+          sudo update-alternatives --install /usr/bin/cc cc /usr/bin/gcc-15 100
+          sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++-15 100
           gcc --version | head -n1
           g++ --version | head -n1
           ldd --version | head -n1
