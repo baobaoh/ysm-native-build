@@ -82,6 +82,18 @@ jobs:
           chmod +x work/bootstrap.sh
           ls work
 
+      # 上游默认 -march=x86-64（基线），但代码里 YSM_TARGET_AVX2 标的是
+      # __attribute__((target("avx2,fma"))) + always_inline：GCC 把 always_inline
+      # 的内联体折进不带 target 的调用方时，会报
+      # "inlining failed in call to always_inline '_mm_fmadd_ps': target specific option mismatch"，
+      # 因为基线 -march=x86-64 后面出现会重置 ISA 特性。改成 v3（AVX2+FMA 基线）。
+      # 目标服 CPU 是 Xeon Platinum 8124M（Cascade Lake），支持 AVX2/FMA/AVX-512。
+      - name: Patch baseline ISA to x86-64-v3
+        run: |
+          f=work/conan/cmake/targets/linux-x64.cmake
+          sed -i 's/-march=x86-64)/-march=x86-64-v3)/' "$f"
+          grep -n "march" "$f"
+
       # bootstrap.sh 内部 export CONAN_HOME=<repo>/conan/cache，只对当前 shell 生效，
       # 所以 setup 与 build 必须同一步执行。
       - name: Conan setup + Build native
@@ -105,11 +117,11 @@ jobs:
           mkdir -p logs
           cp work/build-trace.log logs/ 2>/dev/null || true
           tail -n 30 work/build-trace.log > logs/tail.txt 2>/dev/null || true
-          grep -E "fatal error|CMake Error|^ERROR|error:" work/build-trace.log 2>/dev/null | head -n 10 > logs/errors.txt || true
+          grep -E "fatal error|CMake Error|^ERROR|error:" work/build-trace.log 2>/dev/null | sort -u | head -n 6 > logs/errors.txt || true
           echo "=== errors ==="
           cat logs/errors.txt 2>/dev/null || true
           while IFS= read -r line; do
-            [ -n "$line" ] && echo "::error title=build::$line"
+            [ -n "$line" ] && echo "::error title=build::$(echo "$line" | cut -c1-600)"
           done < logs/errors.txt || true
 
       - name: Upload logs
