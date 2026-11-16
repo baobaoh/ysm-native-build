@@ -1,10 +1,8 @@
 name: build-native
-
 on:
   workflow_dispatch:
   push:
-    branches: [main]
-
+    branches: [main, master]
 jobs:
   build:
     runs-on: ubuntu-22.04
@@ -14,23 +12,37 @@ jobs:
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
           df -h /
-
       - name: Install toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build gcc-12 g++-12
           python3 -m pip install --upgrade pip
           python3 -m pip install "conan==2.33.0" "cmake>=3.29"
-          gcc-12 --version | head -n1
-          cmake --version | head -n1
+          echo "--- versions ---"
+          which conan cmake ninja gcc-12 g++-12
           conan --version
-
+          cmake --version | head -n1
+          ninja --version
+          gcc-12 --version | head -n1
       - name: Fetch source
         run: |
           curl -fL -o src.tar.gz https://codeload.github.com/YesSteveModel/YesSteveModel-Native/tar.gz/refs/heads/dev
           mkdir -p work && tar -xzf src.tar.gz -C work --strip-components=1
+          chmod +x work/bootstrap.sh
           ls work
-
+          echo "--- bootstrap.sh 前 5 行 ---"
+          head -n 5 work/bootstrap.sh
+      - name: Conan setup (export recipes)
+        working-directory: work
+        env:
+          CC: gcc-12
+          CXX: g++-12
+        run: |
+          conan profile detect --force
+          echo "--- detected profile ---"
+          conan profile show
+          echo "--- bootstrap setup (trace) ---"
+          bash -x ./bootstrap.sh setup
       - name: Build native
         working-directory: work
         env:
@@ -38,13 +50,14 @@ jobs:
           CXX: g++-12
           LDFLAGS: "-static-libstdc++ -static-libgcc"
         run: |
-          ./bootstrap.sh setup
-          ./bootstrap.sh build native
-
+          echo "--- bootstrap build (trace) ---"
+          bash -x ./bootstrap.sh build native
       - name: Locate library
+        if: always()
         run: |
           find . -name "libysm*.so*" -type f -exec ls -l {} \;
-
+          echo "--- 构建目录 ---"
+          ls -la work/build 2>/dev/null || true
       - name: Upload libysm.so
         uses: actions/upload-artifact@v4
         with:
