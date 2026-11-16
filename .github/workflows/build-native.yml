@@ -15,29 +15,62 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
           df -h /
 
-      # gcc-12 的 libstdc++ 缺 <format>（GCC 13 才有），<mdspan> 更是 GCC 14 才有。
-      # 用 ubuntu-toolchain-r/test 装 gcc-14，再用 alternatives 让 conan 的
-      # profile detect 认到 gcc-14，同时保持 jammy 的 glibc 2.35（目标服一致）。
-      - name: Install toolchain
+      # gcc-12 的 libstdc++ 缺 <format>（GCC 13 才有），<mdspan> 要 GCC 14。
+      # 用 ubuntu-toolchain-r/test 保持 jammy 的 glibc 2.35（与目标服一致）。
+      - name: Add gcc PPA
         run: |
-          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
-          sudo apt-get update
-          sudo apt-get install -y ninja-build gcc-14 g++-14 nasm yasm build-essential pkg-config autoconf automake libtool
+          sudo apt-get install -y software-properties-common || true
+          if ! sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test; then
+            echo "::error title=ppa-failed::add-apt-repository ppa:ubuntu-toolchain-r/test 失败"
+            exit 1
+          fi
+          sudo apt-get update || true
+          echo "::notice::PPA added"
+
+      - name: Install gcc-14 and build tools
+        run: |
+          set -x
+          if ! sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+              ninja-build gcc-14 g++-14 nasm yasm build-essential \
+              pkg-config autoconf automake libtool; then
+            echo "::error title=apt-install-failed::apt-get install gcc-14 等失败（可能 PPA 里没有该版本）"
+            apt-cache policy gcc-14 g++-14 | head -n 20
+            exit 1
+          fi
+
+      - name: Make gcc-14 default
+        run: |
           sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100
           sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
           sudo update-alternatives --install /usr/bin/cc cc /usr/bin/gcc-14 100
           sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++-14 100
-          python3 -m pip install --upgrade pip
-          python3 -m pip install "conan==2.33.0" "cmake>=3.29"
-          echo "--- versions ---"
-          which conan cmake ninja gcc g++ nasm
-          conan --version
-          cmake --version | head -n1
-          ninja --version
           gcc --version | head -n1
           g++ --version | head -n1
-          printf '#include <format>\n#include <mdspan>\n#include <print>\n#include <expected>\nint main(){ auto s = std::format("{}", 1); return s.empty(); }\n' > /tmp/fmt.cc
-          g++ -std=c++23 /tmp/fmt.cc -o /tmp/fmt && echo "C++23 headers OK (format/mdspan/print/expected)"
+          ldd --version | head -n1
+
+      - name: Install conan + cmake
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install "conan==2.33.0" "cmake>=3.29"
+          which conan cmake ninja
+          conan --version
+          cmake --version | head -n1
+
+      - name: Verify C++23 headers
+        run: |
+          fail=0
+          for h in format mdspan print expected; do
+            printf '#include <%s>\nint main(){return 0;}\n' "$h" > /tmp/t.cc
+            if g++ -std=c++23 /tmp/t.cc -o /tmp/t 2>/tmp/err.txt; then
+              echo "OK   <$h>"
+            else
+              echo "FAIL <$h>"
+              head -n 3 /tmp/err.txt
+              echo "::error title=missing-header::C++23 头文件 <$h> 不可用"
+              fail=1
+            fi
+          done
+          exit $fail
 
       - name: Fetch source
         run: |
@@ -57,28 +90,21 @@ jobs:
         run: |
           set -o pipefail
           conan profile detect --force
-          echo "--- detected profile ---"
           conan profile show
-          echo "--- bootstrap setup ---"
           bash -x ./bootstrap.sh setup
           export CONAN_HOME="$PWD/conan/cache"
-          echo "--- exported recipes ---"
           conan list "*" 2>&1 | head -n 40 || true
-          echo "--- bootstrap build ---"
           bash -x ./bootstrap.sh build native 2>&1 | tee build-trace.log
 
-      - name: Collect logs on failure
+      - name: Report build errors
         if: failure()
         run: |
           mkdir -p logs
           cp work/build-trace.log logs/ 2>/dev/null || true
-          tail -n 40 work/build-trace.log > logs/tail.txt 2>/dev/null || true
-          grep -E "fatal error|CMake Error|^ERROR|error:" work/build-trace.log 2>/dev/null | head -n 20 > logs/errors.txt || true
-          echo "=== errors.txt ==="
+          tail -n 30 work/build-trace.log > logs/tail.txt 2>/dev/null || true
+          grep -E "fatal error|CMake Error|^ERROR|error:" work/build-trace.log 2>/dev/null | head -n 10 > logs/errors.txt || true
+          echo "=== errors ==="
           cat logs/errors.txt 2>/dev/null || true
-          echo "=== tail.txt ==="
-          cat logs/tail.txt 2>/dev/null || true
-          # 把关键错误行推到 check-run annotation（公开可读）
           while IFS= read -r line; do
             [ -n "$line" ] && echo "::error title=build::$line"
           done < logs/errors.txt || true
@@ -95,7 +121,7 @@ jobs:
         if: always()
         run: |
           find . -name "libysm*.so*" -type f -exec ls -l {} \;
-          ls -la work/build 2>/dev/null | head -n 30 || true
+          ls -la work/build 2>/dev/null | head -n 20 || true
 
       - name: Upload libysm.so
         if: always()
