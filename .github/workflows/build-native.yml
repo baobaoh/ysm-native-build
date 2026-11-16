@@ -75,12 +75,18 @@ jobs:
           done
           exit $fail
 
-      - name: Fetch source
+      # 固定到 ca32a15f79（2026-08-10「补充 BakedModel accessor uv 属性」）。
+      # dev HEAD 的 native API 已被 checkpoint 重构，与我们 Java 端的绑定对不上
+      # （Alloc 返回类型、Bake/Render 返回值、Create 签名全变了），这个提交是
+      # 与 3.0-dev Java 绑定最接近的一版（30 个描述符一一对应）。
+      - name: Fetch source (pinned)
         run: |
-          curl -fL -o src.tar.gz https://codeload.github.com/YesSteveModel/YesSteveModel-Native/tar.gz/refs/heads/dev
+          SHA=ca32a15f795809a94973b746a1d5b46ab53d8dc5
+          curl -fL -o src.tar.gz "https://codeload.github.com/YesSteveModel/YesSteveModel-Native/tar.gz/$SHA"
           mkdir -p work && tar -xzf src.tar.gz -C work --strip-components=1
           chmod +x work/bootstrap.sh
           ls work
+          ls work/modules
 
       # 上游默认 -march=x86-64（基线），但代码里 YSM_TARGET_AVX2 标的是
       # __attribute__((target("avx2,fma"))) + always_inline：GCC 把 always_inline
@@ -91,8 +97,87 @@ jobs:
       - name: Patch baseline ISA to x86-64-v3
         run: |
           f=work/conan/cmake/targets/linux-x64.cmake
-          sed -i 's/-march=x86-64)/-march=x86-64-v3)/' "$f"
+          sed -i -E 's/-march=x86-64(-v[0-9])?\)/-march=x86-64-v3)/' "$f"
           grep -n "march" "$f"
+
+      # Java 端 33 个 native 方法里有 6 个在这一版 native 源码中不存在：
+      #   NativeHeapBuffer.nWrap(JI)Ljava/nio/ByteBuffer;
+      #   OpusDecoder.nCreate()J / nInit(J,ByteBuffer)Z / nDecode(J,ByteBuffer)I
+      #                / nReset(J)V / nDestroy(J)V
+      # 这里用仓库自带的 YSM_JNI_ENTRY 机制补上（modules/lib 会 GLOB 编译 src/*.cc）。
+      - name: Inject legacy JNI entries
+        run: |
+          mkdir -p work/modules/lib/src/compat
+          cat > work/modules/lib/src/compat/legacy_entries.cc <<'CC_EOF'
+          // Compatibility JNI entries for the ported 3.0 Java bindings.
+          #include <codec/opus.h>
+          #include <java/buffer.h>
+          #include <java/entry.h>
+
+          #include <cstddef>
+          #include <cstdint>
+
+          #include "log.h"
+
+          namespace ysm::lib::compat {
+          static_assert(sizeof(jlong) == sizeof(void*));
+
+          using OpusStream = ysm::codec::OpusAudioStream;
+
+          namespace {
+          OpusStream* StreamOf(jlong ptr) noexcept {
+              return reinterpret_cast<OpusStream*>(static_cast<std::uintptr_t>(ptr));
+          }
+          }  // namespace
+
+          YSM_JNI_ENTRY(
+              "Lcom/elfmcys/ysm/natives/buffer/NativeHeapBuffer;nWrap(JI)Ljava/nio/ByteBuffer;",
+              (addr, size)) {
+              YSM_ASSERT(size >= 0, absl::InvalidArgumentError("Invalid buffer size"sv));
+              auto* buffer =
+                  env->NewDirectByteBuffer(reinterpret_cast<void*>(addr), size);
+              YSM_ASSERT(buffer != nullptr,
+                         absl::InternalError("Failed to wrap native memory"sv));
+              return static_cast<jobject>(buffer);
+          }
+
+          YSM_JNI_ENTRY("Lcom/elfmcys/ysm/natives/sound/OpusDecoder;nCreate()J", (),
+                        jlong{0}) {
+              return reinterpret_cast<jlong>(new OpusStream());
+          }
+
+          YSM_JNI_ENTRY(
+              "Lcom/elfmcys/ysm/natives/sound/OpusDecoder;nInit(JLjava/nio/ByteBuffer;)Z",
+              (ptr, data)) {
+              YSM_ASSERT(ptr != 0, absl::InvalidArgumentError("Invalid decoder"sv));
+              YSM_DECLARE_OR_RETURN(input, java::GetDirectBuffer(env, data));
+              StreamOf(ptr)->Consume(input);
+              return OkStatus();
+          }
+
+          YSM_JNI_ENTRY(
+              "Lcom/elfmcys/ysm/natives/sound/OpusDecoder;nDecode(JLjava/nio/ByteBuffer;)I",
+              (ptr, dst)) {
+              YSM_ASSERT(ptr != 0, absl::InvalidArgumentError("Invalid decoder"sv));
+              YSM_DECLARE_OR_RETURN(output, java::GetDirectBuffer(env, dst));
+              return static_cast<jint>(StreamOf(ptr)->Decode(output));
+          }
+
+          YSM_JNI_ENTRY("Lcom/elfmcys/ysm/natives/sound/OpusDecoder;nReset(J)V", (ptr)) {
+              if (ptr != 0) {
+                  StreamOf(ptr)->Reset();
+              }
+              return OkStatus();
+          }
+
+          YSM_JNI_ENTRY("Lcom/elfmcys/ysm/natives/sound/OpusDecoder;nDestroy(J)V", (ptr)) {
+              delete StreamOf(ptr);
+              return OkStatus();
+          }
+          }  // namespace ysm::lib::compat
+          CC_EOF
+          head -n 6 work/modules/lib/src/compat/legacy_entries.cc
+          grep -c YSM_JNI_ENTRY work/modules/lib/src/compat/legacy_entries.cc
 
       # bootstrap.sh 内部 export CONAN_HOME=<repo>/conan/cache，只对当前 shell 生效，
       # 所以 setup 与 build 必须同一步执行。
