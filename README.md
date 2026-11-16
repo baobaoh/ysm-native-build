@@ -3,7 +3,30 @@
 把 [YesSteveModel](https://github.com/YesSteveModel/YesSteveModel)（YSM 3.0）移植到 **Fabric 1.21.11** 的源码，
 附带可用的 **Windows / Linux 原生库**。客户端与服务端都能装，服务端装了才能让玩家之间互相看到对方的模型。
 
-> 这是社区移植，不是官方发布。上游主线是 Forge / NeoForge，本仓库只针对 Fabric 1.21.11。
+> 这是社区移植，不是官方发布。本仓库只针对 Fabric 1.21.11。
+
+## 版本与来源
+
+本仓库不是从零写的，也不是从上游 Forge 主线改的，而是从 **YSM 3.0-dev 的 Fabric 移植版** 反向移植回来：
+
+```
+YesSteveModel/YesSteveModel（官方，Apache-2.0，Forge / NeoForge 主线）
+        └── LINGYAN2021/YesSteveModel-Fabric #port/fabric-26.1.2   ← 基线：YSM 3.0-dev 的 Fabric 版，目标 MC 26.1.2
+                └── 本仓库 #main                                    ← 反向移植到 MC 1.21.11
+```
+
+| 项 | 基线（`port/fabric-26.1.2`） | 本移植 |
+|---|---|---|
+| mod 版本 | `3.0-dev-fabric+mc26.1.2` | `3.0-dev-fabric+mc1.21.11` |
+| Minecraft | 26.1.2 | **1.21.11** |
+| Fabric Loader | 0.19.5 | 0.19.3（要求 ≥ 0.19.3） |
+| Fabric API | 0.155.2+26.1.2 | 0.141.6+1.21.11 |
+| Loom | 1.17-SNAPSHOT | 1.17.19 |
+| 映射 | mojmap | mojmap（loom 分层） |
+| 原生库源码 | 上游 `YesSteveModel-Native@dev` | 钉在 `ca32a15f79`（Java 绑定与之一一对应） |
+
+注意区分版本线：官方**已发布**的 `ysm-2.6.5-fabric+mc1.21.1-release.jar` 属于 2.6.5 / MC 1.21.1 那条旧线，
+与本仓库的 `3.0-dev` 不是一回事，存档/模型目录布局也不通用。
 
 ## 已验证的能力
 
