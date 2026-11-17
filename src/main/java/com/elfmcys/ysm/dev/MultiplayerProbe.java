@@ -30,6 +30,7 @@ import net.minecraft.world.entity.player.Player;
 public final class MultiplayerProbe {
     /** "a" / "b" / "set" / "check"，空表示这一侧不启用。 */
     private static final String ROLE = System.getProperty("ysm.mpProbe", "");
+    private static final boolean KEEP = Boolean.getBoolean("ysm.mpKeep");
     /** 要应用的模型路径（greedyString，可含 `/`，也可带 `#texture` 后缀）。 */
     private static final String MODEL = System.getProperty("ysm.mpModel", "wine_fox/01_taisho_maid");
     /** a / b 需要等对方出现；set / check 是单人流程，进档就开始计时。 */
@@ -89,7 +90,9 @@ public final class MultiplayerProbe {
                 ticks++;
             } else if (++waited > MAX_WAIT_TICKS) {
                 YesSteveModel.LOGGER.warn("[YSM-MP] {} gave up waiting for the other player", ROLE);
-                client.stop();
+                if (!KEEP) {
+                        client.stop();
+                    }
                 return;
             }
         } else {
@@ -148,7 +151,9 @@ public final class MultiplayerProbe {
             case TICK_SOLO_EXIT -> {
                 if (!NEEDS_OTHER) {
                     YesSteveModel.LOGGER.info("[YSM-MP] {}: done, stopping client", ROLE);
-                    client.stop();
+                    if (!KEEP) {
+                        client.stop();
+                    }
                 }
             }
             case TICK_REPORT -> {
@@ -169,13 +174,17 @@ public final class MultiplayerProbe {
             case TICK_EXIT_B -> {
                 if ("b".equals(ROLE)) {
                     YesSteveModel.LOGGER.info("[YSM-MP] b: done, stopping client");
-                    client.stop();
+                    if (!KEEP) {
+                        client.stop();
+                    }
                 }
             }
             case TICK_EXIT_A -> {
                 if ("a".equals(ROLE)) {
                     YesSteveModel.LOGGER.info("[YSM-MP] a: done, stopping client");
-                    client.stop();
+                    if (!KEEP) {
+                        client.stop();
+                    }
                 }
             }
             default -> {

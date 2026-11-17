@@ -19,7 +19,25 @@ import java.util.TreeMap;
  * Yes Steve Model 2.x / 3.0 can load.
  */
 public final class V3ModelExporter {
-    private static final double ARM_SHIFT = Double.parseDouble(System.getProperty("ysm.v3.armShift", "4"));
+    private static final double ARM_SHIFT = Double.parseDouble(System.getProperty("ysm.v3.armShift", "1.6"));
+
+    /**
+     * 手臂与袖子同属一组：只移动 Arm 骨骼会让袖子和手臂分家。
+     * 这里按骨骼名把手臂/外袖/内衬方块一起处理。
+     */
+    private static boolean isArmSleeveBone(String boneName) {
+        if (boneName == null) {
+            return false;
+        }
+        if (boneName.contains("Arm")) {
+            return true;
+        }
+        return switch (boneName) {
+            case "wtR", "wtR2", "bone7", "bone8", "bone9", "bone10" -> true;
+            default -> false;
+        };
+    }
+
     private static final GsonPretty GSON = new GsonPretty();
     /** v3 容器里每个方块 6 个面的固定顺序。 */
     private static final String[] FACE_NAMES = {"west", "east", "north", "south", "up", "down"};
@@ -183,7 +201,7 @@ public final class V3ModelExporter {
                 if (c == null) {
                     continue;
                 }
-                if (boneName != null && boneName.contains("Arm") && c.has("origin")) {
+                if (isArmSleeveBone(boneName) && c.has("origin")) {
                     JsonArray origin = c.getAsJsonArray("origin");
                     double ox = origin.get(0).getAsDouble();
                     double shift = ox < 0 ? -ARM_SHIFT : ARM_SHIFT;
