@@ -83,6 +83,8 @@ public final class CatalogReconciler {
                 collectBackingSignals(request, previousReady.orElse(null), ready,
                         touchedDirect, revalidated);
             } catch (ModelSourceException error) {
+                com.elfmcys.ysm.YesSteveModel.LOGGER.warn("Model source rejected {}: {}",
+                        observation.key().relativePath().value(), error.getMessage(), error);
                 var report = new ModelScanError(Instant.now(),
                         observation.key().root().rootKind(),
                         observation.key().relativePath().value(),

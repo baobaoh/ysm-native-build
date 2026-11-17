@@ -89,6 +89,9 @@ public class PlayerModelScreen extends Screen {
 
     protected void selectModel(Hash256 hash, String path, String texture, ModelRenderTarget renderTarget) {
         var player = Minecraft.getInstance().player;
+        var ysmLog = com.elfmcys.ysm.YesSteveModel.LOGGER;
+        ysmLog.info("[YSM-GUI] click path={} texture={} player={} remote={}", path, texture,
+                player != null, NetworkHandler.isRemoteChannelPresent());
         if (player == null) {
             return;
         }
@@ -97,6 +100,7 @@ public class PlayerModelScreen extends Screen {
                 if (capability.hasRoamingStorage(hash.roamingHash())) {
                     capability.updateModelAndTexture(hash, texture);
                 }
+                ysmLog.info("[YSM-GUI] sending select request path={}", path);
                 ClientProtocolGateway.selectModel(hash, texture);
             } else {
                 capability.updateModelAndTexture(hash, texture);

@@ -10,7 +10,8 @@
     "TomatoPuddin",
     "AryochiL",
     "DeepSeek(移植者)",
-    "Mika_Le Malin(移植发起者)"
+    "Mika_Le Malin(移植发起者)",
+    "IzumiiKonata(OpenYSM 作者 · 加密 .ysm 解包实现)"
   ],
   "contact": {
     "issues": "https://github.com/baobaoh/ysm-native-build/issues",
@@ -36,5 +37,13 @@
     "fabric-api": "*",
     "minecraft": "~1.21.11",
     "java": ">=21"
-  }
+  },
+  "contributors": [
+    {
+      "name": "IzumiiKonata(OpenYSM 作者 · 加密 .ysm 解包实现来源)",
+      "contact": {
+        "homepage": "https://github.com/IzumiiKonata/OpenYSM-Updated"
+      }
+    }
+  ]
 }

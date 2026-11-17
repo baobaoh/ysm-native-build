@@ -51,6 +51,8 @@ public final class MultiplayerProbe {
     private static final int TICK_SOLO_REPORT = 40;
     private static final int TICK_SOLO_SHOT = 120;
     private static final int TICK_SOLO_SHOT2 = 170;
+    private static final int TICK_SOLO_GUI = 185;
+    private static final int TICK_SOLO_GUI_SHOT = 205;
     private static final int TICK_SOLO_EXIT = 220;
     /** 最多等 6 分钟对方出现，超时就退出，避免无人值守时一直挂着。 */
     private static final int MAX_WAIT_TICKS = 7200;
@@ -117,7 +119,7 @@ public final class MultiplayerProbe {
                 if (!NEEDS_OTHER) {
                     send(client, "time set noon");
                     send(client, "weather clear");
-                    client.options.setCameraType(net.minecraft.client.CameraType.THIRD_PERSON_BACK);
+                    client.options.setCameraType(net.minecraft.client.CameraType.THIRD_PERSON_FRONT);
                     report(client);
                 }
             }
@@ -128,7 +130,19 @@ public final class MultiplayerProbe {
             }
             case TICK_SOLO_SHOT2 -> {
                 if (!NEEDS_OTHER) {
+                    client.options.setCameraType(net.minecraft.client.CameraType.THIRD_PERSON_BACK);
                     grab(client, "ysm-mp-" + ROLE + "-2");
+                }
+            }
+            case TICK_SOLO_GUI -> {
+                if (!NEEDS_OTHER) {
+                    YesSteveModel.LOGGER.info("[YSM-MP] opening model screen");
+                    client.setScreen(new com.elfmcys.ysm.client.gui.PlayerModelScreen());
+                }
+            }
+            case TICK_SOLO_GUI_SHOT -> {
+                if (!NEEDS_OTHER) {
+                    grab(client, "ysm-mp-gui");
                 }
             }
             case TICK_SOLO_EXIT -> {

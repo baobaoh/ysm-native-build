@@ -38,6 +38,13 @@ public final class ModelSourceResolver {
         if (observation.key().sourceKind() == ModelSourceKind.DIRECT_CONTAINER) {
             return validateDirect(observation, location);
         }
+        // 老版 YSM 2.x 导出的加密 .ysm（YSGP v3）由 LegacyImporter 在纯 Java 侧解密并还原成
+        // 文件夹后参与编译，这里不再拦截。
+        if (observation.key().sourceKind() == ModelSourceKind.UNSUPPORTED_YSM) {
+            throw new ModelSourceException("Unrecognized .ysm header: "
+                    + observation.key().relativePath()
+                    + " — the file is neither a raw YSGP v1/v2 archive nor a YSGP v3 container");
+        }
 
         final Optional<ConvertedSourceIndex> index;
         try {

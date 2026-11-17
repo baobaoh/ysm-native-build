@@ -28,10 +28,15 @@ public final class RawModelImporter {
     }
 
     public RawCompileResult convert(Path source, Path outputDirectory) {
-        // 旧版加密 .ysm（YSGP v3）由 native 的 LegacyBundle 就在 NativeArchive 里解密，
-        // 不需要走单独的导入器 —— 之前在这里提前抛"unavailable"把 55 个旧模型全挡在门外
+        // 旧版加密 .ysm（YSGP v3）先在纯 Java 侧解密并还原成文件夹，再走普通 VFS 流程
         if (Files.isDirectory(source)) {
             try (var vfs = new Directory(source)) {
+                return ModelParser.compile(vfs, outputDirectory, defaultAnimations);
+            }
+        }
+        var encryptedFolder = extractEncrypted(source, outputDirectory);
+        if (encryptedFolder != null) {
+            try (var vfs = new Directory(encryptedFolder)) {
                 return ModelParser.compile(vfs, outputDirectory, defaultAnimations);
             }
         }
@@ -40,9 +45,21 @@ public final class RawModelImporter {
         }
     }
 
+    /** Extracts an encrypted V3 container into a folder, or returns null when not encrypted. */
+    private Path extractEncrypted(Path source, Path outputDirectory) {
+        if (!v3Importer.recognizes(source)) {
+            return null;
+        }
+        try {
+            return v3Importer.importModel(source, outputDirectory);
+        } catch (IOException error) {
+            throw new UncheckedIOException("Failed to extract encrypted model container", error);
+        }
+    }
+
     public boolean supportsHashProbe(Path source) {
-        // 加密 .ysm 同样能通过 NativeArchive 解密后做 dry-run 探测
-        return true;
+        // 加密 .ysm 需要先解包才能探测，交给完整转换流程
+        return !v3Importer.recognizes(source);
     }
 
     public Hash256 scanModelHash(Path source) {

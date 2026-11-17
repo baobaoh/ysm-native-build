@@ -7,11 +7,13 @@ import java.io.UncheckedIOException;
 import java.nio.file.Path;
 
 /**
- * Placeholder for the optional encrypted V3 importer. V3 is intentionally not
- * part of the normal raw VFS path and no legacy protection mechanism is restored.
+ * Importer for the encrypted V3 {@code .ysm} containers produced by YSM 2.x.
+ *
+ * <p>Decryption and binary deserialization run in pure Java (ported from OpenYSM, MIT);
+ * the result is rewritten into the classic unpacked folder layout before compilation.</p>
  */
 public final class LegacyImporter {
-    public static final String PROFILE_VERSION = "0.1.0-unstable:no-v3-importer";
+    public static final String PROFILE_VERSION = "0.1.0-unstable:v3-java-importer";
 
     public boolean recognizes(Path source) {
         if (!source.getFileName().toString().toLowerCase(java.util.Locale.ROOT)
@@ -26,7 +28,6 @@ public final class LegacyImporter {
     }
 
     public Path importModel(Path source, Path outputDirectory) throws IOException {
-        throw new IOException(
-                "Encrypted V3 .ysm import is unavailable in 0.1.0-unstable");
+        return V3ArchiveConverter.convert(source, outputDirectory);
     }
 }
