@@ -13,8 +13,8 @@
     "Mika_Le Malin(移植发起者)"
   ],
   "contact": {
-    "issues": "https://github.com/baobaoh/ysm-fabric-1.21.11/issues",
-    "sources": "https://github.com/baobaoh/ysm-fabric-1.21.11",
+    "issues": "https://github.com/baobaoh/ysm-native-build/issues",
+    "sources": "https://github.com/baobaoh/ysm-native-build",
     "homepage": "https://github.com/YesSteveModel/YesSteveModel"
   },
   "license": "Apache-2.0",

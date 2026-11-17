@@ -87,6 +87,9 @@ gradlew.bat build        # Windows
 **想自己重编原生库**（改 C++ 侧、或要 arm64 / macOS 版本）见 [PORTING-REPORT.md](PORTING-REPORT.md)
 第 6 节「Linux 原生库的编译与取证」——里面写了钉死的上游提交、要补的 6 个 JNI 入口和 GCC 的四个坑。
 
+本仓库同时保存了当时编译 `libysm.so` 用的 GitHub Actions 流程
+（`.github/workflows/build-native.yml`，钉死提交 `ca32a15f79`），可以照着复现或改成别的目标平台。
+
 ## 原生库
 
 | 平台 | 文件 | 说明 |
@@ -105,6 +108,7 @@ src/main/resources/assets/ysm/     内置模型与语言文件
 src/main/resources/META-INF/native/  原生库
 src/main/proto/                    protobuf 定义（模型资产传输协议）
 gradle/native.gradle               原生库路径解析（run 环境注入）
+.github/workflows/build-native.yml 重编 libysm.so 用的 CI（Linux / glibc 2.35）
 PORTING-REPORT.md                  移植报告：改了什么、怎么验证、踩了哪些坑
 NOTICE.md                          第三方组件与许可证清单
 ```
@@ -112,6 +116,8 @@ NOTICE.md                          第三方组件与许可证清单
 ## 已知限制
 
 - 只支持 Fabric 1.21.11；上游的 Forge / NeoForge 版本不在本仓库范围内。
+- **不读加密的旧版 `.ysm` 包**（YSGP v3）。模型请用**解包后的文件夹**形式放进 `ysm/custom/`；
+  遇到这种包时 `/ysm model errors` 会明确报 `Encrypted legacy .ysm (YSGP v3) is not supported yet`。
 - 服务端下发模型时会把整只模型的音频分块一并传输（首个版本如此，未做按需懒加载）。
 - 客户端远端模型缓存没有容量上限与淘汰策略。
 
