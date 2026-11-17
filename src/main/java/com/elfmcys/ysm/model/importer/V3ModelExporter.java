@@ -19,6 +19,8 @@ import java.util.TreeMap;
  */
 public final class V3ModelExporter {
     private static final GsonPretty GSON = new GsonPretty();
+    /** v3 容器里每个方块 6 个面的固定顺序。 */
+    private static final String[] FACE_NAMES = {"west", "east", "north", "south", "up", "down"};
     private static int rotatedCubes = 0;
     private static int skippedFaces = 0;
     private static int totalCubes = 0;
@@ -90,6 +92,26 @@ public final class V3ModelExporter {
                 writeTexture(tex, textures);
             }
         }
+    }
+
+    private static String firstTexturePath(RawYsmModel.RawSubEntity sub, RawYsmModel model) {
+        if (sub != null && sub.textures != null) {
+            for (RawYsmModel.RawTexture tex : sub.textures.values()) {
+                if (tex != null && tex.data != null && tex.data.length > 0) {
+                    String name = tex.name == null || tex.name.isEmpty() ? "skin" : tex.name.replace('\\', '_').replace('/', '_');
+                    return "textures/" + name + ".png";
+                }
+            }
+        }
+        if (model != null && model.mainEntity != null && model.mainEntity.textures != null) {
+            for (RawYsmModel.RawTexture tex : model.mainEntity.textures.values()) {
+                if (tex != null && tex.data != null && tex.data.length > 0) {
+                    String name = tex.name == null || tex.name.isEmpty() ? "skin" : tex.name.replace('\\', '_').replace('/', '_');
+                    return "textures/" + name + ".png";
+                }
+            }
+        }
+        return null;
     }
 
     private static void writeGeometry(RawYsmModel.RawGeometry geo, Path file, int texW, int texH) throws IOException {
@@ -318,13 +340,11 @@ public final class V3ModelExporter {
         }
 
         JsonObject uv = new JsonObject();
-        for (int index = 0; index < cube.faces.size(); index++) {
+        for (int index = 0; index < cube.faces.size() && index < FACE_NAMES.length; index++) {
             RawYsmModel.RawFace face = cube.faces.get(index);
-            String name = faceName(localNormal(rot, face.normal));
-            if (name == null) {
-                skippedFaces++;
-                continue;
-            }
+            // v3 容器里 6 个面的顺序是固定的（west/east/north/south/up/down），
+            // 不能靠法线去猜——旋转过的方块法线不精确，猜不出来就会丢 UV。
+            String name = FACE_NAMES[index];
             if (uv.has(name)) {
                 continue;
             }
@@ -340,6 +360,23 @@ public final class V3ModelExporter {
             uvSize.add(round(Math.abs(v1 - v0)));
             faceNode.add("uv_size", uvSize);
             uv.add(name, faceNode);
+        }
+        // 老容器里有个别方块只存了 2 个面，加载器要求 6 个面都在，缺的补成零面积，
+        // 否则整只模型会因为 "Missing texture uv" 被丢弃。
+        for (String faceName : FACE_NAMES) {
+            if (uv.has(faceName)) {
+                continue;
+            }
+            JsonObject faceNode = new JsonObject();
+            JsonArray uvArray = new JsonArray();
+            uvArray.add(0);
+            uvArray.add(0);
+            faceNode.add("uv", uvArray);
+            JsonArray uvSize = new JsonArray();
+            uvSize.add(0);
+            uvSize.add(0);
+            faceNode.add("uv_size", uvSize);
+            uv.add(faceName, faceNode);
         }
         node.add("uv", uv);
         return node;
@@ -427,6 +464,13 @@ public final class V3ModelExporter {
         if (tex == null || tex.data == null || tex.data.length == 0) {
             return;
         }
+        String name = tex.name == null || tex.name.isEmpty() ? "skin" : tex.name;
+        name = name.replace('\\', '_').replace('/', '_');
+        if (tex.imageFormat == -1) {
+            // format <= 15 的老容器：贴图是未压缩的 RGBA 原始像素
+            writeRgbaTexture(tex, dir.resolve(name + ".png"));
+            return;
+        }
         String extension = switch (tex.imageFormat) {
             case 2 -> ".png";
             case 3 -> ".jpg";
@@ -438,8 +482,35 @@ public final class V3ModelExporter {
             System.err.println("texture " + tex.name + " has unsupported format " + tex.imageFormat);
             return;
         }
-        String name = tex.name == null || tex.name.isEmpty() ? "skin" : tex.name;
         Files.write(dir.resolve(name + extension), tex.data);
+    }
+
+    /** 把 RGBA 原始像素编码成 PNG（老版 .ysm 的贴图只有这种走法）。 */
+    private static void writeRgbaTexture(RawYsmModel.RawTexture tex, Path target) throws IOException {
+        int width = (int) tex.width;
+        int height = (int) tex.height;
+        byte[] data = tex.data;
+        if (width <= 0 || height <= 0 || data.length < 4L * width * height) {
+            // 尺寸不可信时按正方形推断
+            int side = (int) Math.round(Math.sqrt(data.length / 4.0));
+            if (side > 0 && side * side * 4 == data.length) {
+                width = side;
+                height = side;
+            } else {
+                System.err.println("texture " + tex.name + " has unusable RGBA size: "
+                        + tex.width + "x" + tex.height + " bytes=" + data.length);
+                return;
+            }
+        }
+        java.awt.image.BufferedImage image =
+                new java.awt.image.BufferedImage(width, height, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+        int[] pixels = new int[width * height];
+        for (int i = 0, p = 0; i < pixels.length; i++, p += 4) {
+            pixels[i] = (data[p] & 0xFF) << 24 | (data[p + 1] & 0xFF) << 16
+                    | (data[p + 2] & 0xFF) << 8 | (data[p + 3] & 0xFF);
+        }
+        image.setRGB(0, 0, width, height, pixels, 0, width);
+        javax.imageio.ImageIO.write(image, "png", target.toFile());
     }
 
     // ── animations ────────────────────────────────────────────────────────
@@ -832,11 +903,18 @@ public final class V3ModelExporter {
         if (vehicles.size() > 0) {
             files.add("vehicles", vehicles);
         }
-        JsonObject projectiles = new JsonObject();
+        JsonArray projectiles = new JsonArray();
         for (Map.Entry<String, RawYsmModel.RawSubEntity> e : model.projectiles.entrySet()) {
             JsonObject node = new JsonObject();
+            JsonArray match = new JsonArray();
+            match.add(e.getKey());
+            node.add("match", match);
             node.addProperty("model", "models/" + e.getKey().replace(':', '_') + ".json");
-            projectiles.add(e.getKey(), node);
+            String texPath = firstTexturePath(e.getValue(), model);
+            if (texPath != null) {
+                node.addProperty("texture", texPath);
+            }
+            projectiles.add(node);
         }
         if (projectiles.size() > 0) {
             files.add("projectiles", projectiles);
