@@ -30,7 +30,7 @@ public final class V3ModelExporter {
             return false;
         }
         if (boneName.contains("Arm")) {
-            return true;
+            return false;
         }
         return switch (boneName) {
             case "wtR", "wtR2", "bone7", "bone8", "bone9", "bone10" -> true;
@@ -176,8 +176,14 @@ public final class V3ModelExporter {
         String boneName = bone.name == null ? "" : bone.name;
         JsonObject node = new JsonObject();
         node.addProperty("name", boneName);
-        if (bone.parentName != null && !bone.parentName.isEmpty() && !"-".equals(bone.parentName)) {
-            node.addProperty("parent", bone.parentName);
+        String effectiveParent = bone.parentName;
+        if (isArmSleeveBone(boneName) && bone.cubes != null && !bone.cubes.isEmpty()) {
+            // 网格已经镜像过：pivot 为正的一侧是 RightArm
+            double side = (bone.pivot != null && bone.pivot.length > 0) ? bone.pivot[0] : 0.0;
+            effectiveParent = side > 0 ? "RightArm" : "LeftArm";
+        }
+        if (effectiveParent != null && !effectiveParent.isEmpty() && !"-".equals(effectiveParent)) {
+            node.addProperty("parent", effectiveParent);
         }
         if (bone.pivot != null && bone.pivot.length >= 3) {
             JsonArray pivot = new JsonArray();
