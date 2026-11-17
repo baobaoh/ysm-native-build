@@ -293,7 +293,7 @@ public final class V3ModelExporter {
 
         JsonObject node = new JsonObject();
         JsonArray origin = new JsonArray();
-        origin.add(round((centerX + minX) * 16f));
+        origin.add(round(-(centerX + maxX) * 16f));
         origin.add(round((centerY + minY) * 16f));
         origin.add(round((centerZ + minZ) * 16f));
         node.add("origin", origin);
@@ -311,7 +311,7 @@ public final class V3ModelExporter {
             rotation.add(round(degrees(Math.atan2(rot[1][0], rot[0][0]))));
             node.add("rotation", rotation);
             JsonArray pivot = new JsonArray();
-            pivot.add(round(centerX * 16f));
+            pivot.add(round(-centerX * 16f));
             pivot.add(round(centerY * 16f));
             pivot.add(round(centerZ * 16f));
             node.add("pivot", pivot);
